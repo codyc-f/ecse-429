@@ -1,5 +1,13 @@
 # Todo Manager REST API Documentation
 
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+pytest tests/ -v                    # normal run
+pytest tests/ -v -p randomly       # random order run
+```
+
 A RESTful API for managing **todos**, **projects**, and **categories** with full relationship support between entities. Built on the [Thingifier](https://github.com/eviltester/thingifier) engine (v1.5).
 
 **Base URL:** `http://localhost:4567`
