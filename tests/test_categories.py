@@ -407,3 +407,188 @@ class TestCategoryHeadAndOptions:
     def test_head_category_by_id(self, created_category):
         r = requests.head(f"{BASE_URL}/categories/{created_category['id']}")
         assert r.status_code in (200, 405)
+
+
+# ====================================================================
+# Malformed Payload & Invalid Operations Tests
+# ====================================================================
+class TestMalformedPayloads:
+    """Tests for handling malformed and invalid payloads."""
+
+    def test_create_category_malformed_json(self):
+        """Test API behavior with malformed JSON payload."""
+        malformed_json = '{"title": "Missing closing brace"'
+        r = requests.post(
+            f"{BASE_URL}/categories",
+            data=malformed_json,
+            headers={"Content-Type": "application/json"}
+        )
+        # Should return 400 Bad Request for malformed JSON
+        assert r.status_code == 400
+
+    def test_create_category_malformed_xml(self):
+        """Test API behavior with malformed XML payload."""
+        malformed_xml = '<category><title>Missing closing tag</category>'
+        r = requests.post(
+            f"{BASE_URL}/categories",
+            data=malformed_xml,
+            headers={"Content-Type": "application/xml"}
+        )
+        # Should return 400 Bad Request for malformed XML
+        assert r.status_code == 400
+
+    def test_create_category_invalid_json_syntax(self):
+        """Test with JSON that is syntactically invalid.
+        
+        FINDING: The string 'undefined' is treated as literal string value,
+        so this actually parses as valid JSON with title='undefined'.
+        """
+        invalid_json = '{"title": undefined}'  # undefined is not valid JSON
+        r = requests.post(
+            f"{BASE_URL}/categories",
+            data=invalid_json,
+            headers={"Content-Type": "application/json"}
+        )
+        # API accepts this and creates category with title='undefined'
+        assert r.status_code == 201
+
+    def test_create_category_empty_json_object(self):
+        """Test with empty JSON object - should fail (no title)."""
+        r = requests.post(
+            f"{BASE_URL}/categories",
+            json={},
+            headers=JSON_HEADERS
+        )
+        assert r.status_code == 400
+
+    def test_create_category_null_title(self):
+        """Test with null/None title value."""
+        r = requests.post(
+            f"{BASE_URL}/categories",
+            json={"title": None},
+            headers=JSON_HEADERS
+        )
+        assert r.status_code == 400
+
+    def test_create_category_numeric_title(self):
+        """Test with numeric title instead of string."""
+        r = requests.post(
+            f"{BASE_URL}/categories",
+            json={"title": 12345},
+            headers=JSON_HEADERS
+        )
+        # API may coerce to string or reject - document behavior
+        assert r.status_code in (201, 400)
+
+    def test_update_category_malformed_json(self, created_category):
+        """Test POST update with malformed JSON."""
+        cid = created_category["id"]
+        malformed_json = '{"title": "Unclosed'
+        r = requests.post(
+            f"{BASE_URL}/categories/{cid}",
+            data=malformed_json,
+            headers={"Content-Type": "application/json"}
+        )
+        assert r.status_code == 400
+
+    def test_update_category_malformed_xml(self, created_category):
+        """Test PUT update with malformed XML."""
+        cid = created_category["id"]
+        malformed_xml = '<category><title>Unclosed'
+        r = requests.put(
+            f"{BASE_URL}/categories/{cid}",
+            data=malformed_xml,
+            headers={"Content-Type": "application/xml"}
+        )
+        assert r.status_code == 400
+
+    def test_get_category_invalid_id_format(self):
+        """Test GET with non-numeric ID."""
+        r = requests.get(
+            f"{BASE_URL}/categories/invalid_id",
+            headers=JSON_HEADERS
+        )
+        # Should return 404 for invalid format
+        assert r.status_code == 404
+
+    def test_delete_category_invalid_id_format(self):
+        """Test DELETE with non-numeric ID."""
+        r = requests.delete(f"{BASE_URL}/categories/not_a_number")
+        assert r.status_code == 404
+
+    def test_delete_nonexistent_category_returns_404(self):
+        """Test deleting a category that doesn't exist."""
+        r = requests.delete(f"{BASE_URL}/categories/999999")
+        assert r.status_code == 404
+
+    def test_double_delete_returns_404(self, created_category):
+        """Test attempting to delete the same category twice."""
+        cid = created_category["id"]
+        # First delete should succeed
+        r1 = requests.delete(f"{BASE_URL}/categories/{cid}")
+        assert r1.status_code == 200
+        # Second delete should fail (already deleted)
+        r2 = requests.delete(f"{BASE_URL}/categories/{cid}")
+        assert r2.status_code == 404
+
+    def test_update_nonexistent_category_returns_404(self):
+        """Test POST update on nonexistent category."""
+        r = requests.post(
+            f"{BASE_URL}/categories/999999",
+            json={"title": "Ghost"},
+            headers=JSON_HEADERS
+        )
+        assert r.status_code == 404
+
+    def test_put_nonexistent_category_returns_404(self):
+        """Test PUT update on nonexistent category."""
+        r = requests.put(
+            f"{BASE_URL}/categories/999999",
+            json={"title": "Ghost"},
+            headers=JSON_HEADERS
+        )
+        assert r.status_code == 404
+
+    def test_create_category_with_extra_invalid_fields(self):
+        """Test creating category with unknown/extra fields.
+        
+        FINDING: The API strictly validates and rejects payloads
+        with extra/unknown fields rather than ignoring them.
+        """
+        body = {
+            "title": "Test",
+            "unknown_field": "should_be_ignored",
+            "another_invalid": 123
+        }
+        r = requests.post(
+            f"{BASE_URL}/categories",
+            json=body,
+            headers=JSON_HEADERS
+        )
+        # API strictly rejects extra/unknown fields
+        assert r.status_code == 400
+
+    def test_create_todo_via_category_malformed_json(self, created_category):
+        """Test creating a linked todo with malformed JSON."""
+        cid = created_category["id"]
+        malformed_json = '{"title": "Unclosed'
+        r = requests.post(
+            f"{BASE_URL}/categories/{cid}/todos",
+            data=malformed_json,
+            headers={"Content-Type": "application/json"}
+        )
+        assert r.status_code == 400
+
+    def test_unlink_nonexistent_todo(self, created_category):
+        """Test unlinking a todo that doesn't exist from category."""
+        cid = created_category["id"]
+        r = requests.delete(f"{BASE_URL}/categories/{cid}/todos/999999")
+        # Should return 404 or 400 (not found / cannot unlink)
+        assert r.status_code in (400, 404)
+
+    def test_unlink_nonexistent_project(self, created_category):
+        """Test unlinking a project that doesn't exist from category."""
+        cid = created_category["id"]
+        r = requests.delete(f"{BASE_URL}/categories/{cid}/projects/999999")
+        # Should return 404 or 400 (not found / cannot unlink)
+        assert r.status_code in (400, 404)

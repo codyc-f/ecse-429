@@ -12,6 +12,7 @@ Covers:
 """
 import pytest
 import requests
+import xmltodict
 
 BASE_URL = "http://localhost:4567"
 JSON_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -151,6 +152,39 @@ class TestMalformedXml:
         # May succeed or fail depending on API flexibility
         assert r.status_code in (201, 400)
 
+    def test_malformed_xml_on_update_todo(self, created_todo):
+        """Malformed XML on update should return 400."""
+        tid = created_todo["id"]
+        malformed_xml = "<todo><title>broken</title><unclosed>"
+        r = requests.post(
+            f"{BASE_URL}/todos/{tid}",
+            data=malformed_xml,
+            headers=XML_HEADERS,
+        )
+        assert r.status_code == 400
+
+    def test_malformed_xml_on_update_project(self, created_project):
+        """Malformed XML on update should return 400."""
+        pid = created_project["id"]
+        malformed_xml = "<project><title>bad<</title></project>"
+        r = requests.post(
+            f"{BASE_URL}/projects/{pid}",
+            data=malformed_xml,
+            headers=XML_HEADERS,
+        )
+        assert r.status_code == 400
+
+    def test_malformed_xml_on_update_category(self, created_category):
+        """Malformed XML on update should return 400."""
+        cid = created_category["id"]
+        malformed_xml = "<category><title>broken</title><unclosed>"
+        r = requests.post(
+            f"{BASE_URL}/categories/{cid}",
+            data=malformed_xml,
+            headers=XML_HEADERS,
+        )
+        assert r.status_code == 400
+
 
 # ====================================================================
 # Invalid Operations
@@ -227,6 +261,21 @@ class TestInvalidOperations:
         r = requests.get(f"{BASE_URL}/categories/999999", headers=JSON_HEADERS)
         assert r.status_code == 404
         assert "errorMessages" in r.json()
+
+    def test_get_nonexistent_todo_xml_response(self):
+        """Verify 404 works with XML Accept header."""
+        r = requests.get(f"{BASE_URL}/todos/999999", headers=XML_HEADERS)
+        assert r.status_code == 404
+
+    def test_get_nonexistent_project_xml_response(self):
+        """Verify 404 works with XML Accept header."""
+        r = requests.get(f"{BASE_URL}/projects/999999", headers=XML_HEADERS)
+        assert r.status_code == 404
+
+    def test_get_nonexistent_category_xml_response(self):
+        """Verify 404 works with XML Accept header."""
+        r = requests.get(f"{BASE_URL}/categories/999999", headers=XML_HEADERS)
+        assert r.status_code == 404
 
     def test_link_with_id_to_project_rejected(self, created_project):
         """BUG: API rejects linking existing entities by id — returns 400."""

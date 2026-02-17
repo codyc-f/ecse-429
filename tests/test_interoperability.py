@@ -14,9 +14,11 @@ Covers cross-entity relationship scenarios:
 """
 import pytest
 import requests
+import xmltodict
 
 BASE_URL = "http://localhost:4567"
 JSON_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+XML_HEADERS = {"Content-Type": "application/xml", "Accept": "application/xml"}
 
 
 # ====================================================================
@@ -82,6 +84,42 @@ class TestBidirectionalTodoProject:
         projects = r2.json().get("projects", [])
         assert not any(p["id"] == pid for p in projects)
 
+    def test_link_via_todo_taskof_json_format(self, created_todo):
+        """Test task-of relationship with JSON format."""
+        tid = created_todo["id"]
+        r = requests.post(
+            f"{BASE_URL}/todos/{tid}/task-of",
+            json={"title": "JSON Taskof"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "id" in data
+        pid = data["id"]
+        # Verify with JSON response
+        r2 = requests.get(f"{BASE_URL}/projects/{pid}/tasks", headers=JSON_HEADERS)
+        assert r2.status_code == 200
+        assert "application/json" in r2.headers.get("Content-Type", "")
+        data = r2.json()
+        assert "todos" in data
+
+    def test_link_via_todo_taskof_xml_format(self, created_todo):
+        """Test task-of relationship with XML format."""
+        tid = created_todo["id"]
+        r = requests.post(
+            f"{BASE_URL}/todos/{tid}/task-of",
+            json={"title": "XML Taskof"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        pid = r.json()["id"]
+        # Verify with XML response
+        r2 = requests.get(f"{BASE_URL}/projects/{pid}/tasks", headers=XML_HEADERS)
+        assert r2.status_code == 200
+        parsed = xmltodict.parse(r2.text)
+        assert "todos" in parsed
+
 
 class TestBidirectionalTodoCategory:
     """Verify bidirectional consistency between todos and categories.
@@ -124,6 +162,40 @@ class TestBidirectionalTodoCategory:
         assert not any(c["id"] == cid for c in cats), \
             "BUG: relationship is not bidirectional (cat->todo but not todo->cat)"
 
+    def test_link_via_todo_category_json_format(self, created_todo):
+        """Test category relationship with JSON format."""
+        tid = created_todo["id"]
+        r = requests.post(
+            f"{BASE_URL}/todos/{tid}/categories",
+            json={"title": "JSON Category"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "id" in data
+        # Verify with JSON response
+        r2 = requests.get(f"{BASE_URL}/todos/{tid}/categories", headers=JSON_HEADERS)
+        assert r2.status_code == 200
+        assert "application/json" in r2.headers.get("Content-Type", "")
+        data = r2.json()
+        assert "categories" in data
+
+    def test_link_via_todo_category_xml_format(self, created_todo):
+        """Test category relationship with XML format."""
+        tid = created_todo["id"]
+        r = requests.post(
+            f"{BASE_URL}/todos/{tid}/categories",
+            json={"title": "XML Category"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        # Verify with XML response
+        r2 = requests.get(f"{BASE_URL}/todos/{tid}/categories", headers=XML_HEADERS)
+        assert r2.status_code == 200
+        parsed = xmltodict.parse(r2.text)
+        assert "categories" in parsed
+
 
 class TestBidirectionalProjectCategory:
     """Verify bidirectional consistency between projects and categories.
@@ -148,6 +220,44 @@ class TestBidirectionalProjectCategory:
         projects = r2.json().get("projects", [])
         assert not any(p["id"] == pid for p in projects), \
             "BUG: relationship is not bidirectional (proj->cat but not cat->proj)"
+
+    def test_link_via_project_category_json_format(self, created_project):
+        """Test category relationship with JSON format."""
+        pid = created_project["id"]
+        r = requests.post(
+            f"{BASE_URL}/projects/{pid}/categories",
+            json={"title": "JSON Category"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "id" in data
+        # Verify with JSON response
+        r2 = requests.get(
+            f"{BASE_URL}/projects/{pid}/categories", headers=JSON_HEADERS
+        )
+        assert r2.status_code == 200
+        assert "application/json" in r2.headers.get("Content-Type", "")
+        data = r2.json()
+        assert "categories" in data
+
+    def test_link_via_project_category_xml_format(self, created_project):
+        """Test category relationship with XML format."""
+        pid = created_project["id"]
+        r = requests.post(
+            f"{BASE_URL}/projects/{pid}/categories",
+            json={"title": "XML Category"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        # Verify with XML response
+        r2 = requests.get(
+            f"{BASE_URL}/projects/{pid}/categories", headers=XML_HEADERS
+        )
+        assert r2.status_code == 200
+        parsed = xmltodict.parse(r2.text)
+        assert "categories" in parsed
 
     def test_link_via_category_not_bidirectional_bug(self, created_category):
         """BUG: Creating a project via category does NOT appear in project's categories."""

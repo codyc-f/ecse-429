@@ -210,6 +210,14 @@ class TestAmendProject:
         assert data["title"] == "Only Title"
         assert data["description"] == created_project["description"]
 
+    def test_amend_project_xml(self, created_project):
+        pid = created_project["id"]
+        xml_body = "<project><title>XML Amended</title><description>XML Desc</description></project>"
+        r = requests.post(f"{BASE_URL}/projects/{pid}", data=xml_body, headers=XML_HEADERS)
+        assert r.status_code == 200
+        parsed = xmltodict.parse(r.text)
+        assert parsed["project"]["title"] == "XML Amended"
+
 
 # ====================================================================
 # PUT /projects/:id — Replace / Full Update
@@ -239,11 +247,13 @@ class TestPutProject:
 
     def test_put_project_xml(self, created_project):
         pid = created_project["id"]
-        xml_body = "<project><title>XML Put</title></project>"
+        xml_body = "<project><title>XML Put</title><description>XML Put Desc</description><completed>true</completed><active>false</active></project>"
         r = requests.put(
             f"{BASE_URL}/projects/{pid}", data=xml_body, headers=XML_HEADERS
         )
         assert r.status_code == 200
+        parsed = xmltodict.parse(r.text)
+        assert parsed["project"]["title"] == "XML Put"
 
 
 # ====================================================================
@@ -284,6 +294,12 @@ class TestDeleteProject:
         after = requests.get(f"{BASE_URL}/projects").json()["projects"]
         assert len(after) == len(before) - 1
         assert any(p["id"] == other["id"] for p in after)
+
+    def test_delete_project_with_xml_response(self, created_project):
+        """DELETE should work regardless of Accept header."""
+        pid = created_project["id"]
+        r = requests.delete(f"{BASE_URL}/projects/{pid}", headers=XML_HEADERS)
+        assert r.status_code == 200
 
 
 # ====================================================================
@@ -341,6 +357,55 @@ class TestProjectTasks:
             headers=JSON_HEADERS,
         )
         assert r.status_code == 400
+
+    def test_get_tasks_json(self, created_project):
+        """GET tasks should support JSON response format."""
+        pid = created_project["id"]
+        r = requests.get(f"{BASE_URL}/projects/{pid}/tasks", headers=JSON_HEADERS)
+        assert r.status_code == 200
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "todos" in data
+
+    def test_get_tasks_xml(self, created_project):
+        """GET tasks should support XML response format."""
+        pid = created_project["id"]
+        r = requests.get(f"{BASE_URL}/projects/{pid}/tasks", headers=XML_HEADERS)
+        assert r.status_code == 200
+        assert "application/xml" in r.headers.get("Content-Type", "")
+        parsed = xmltodict.parse(r.text)
+        assert "todos" in parsed
+
+    def test_link_project_to_todo_json(self, created_project):
+        """Link to todo via JSON payload returns JSON."""
+        pid = created_project["id"]
+        r = requests.post(
+            f"{BASE_URL}/projects/{pid}/tasks",
+            json={"title": "JSON Linked Todo"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "id" in data
+        tid = data["id"]
+        # Verify link exists
+        r2 = requests.get(f"{BASE_URL}/projects/{pid}/tasks", headers=JSON_HEADERS)
+        todos = r2.json().get("todos", [])
+        assert any(t["id"] == tid for t in todos)
+
+    def test_link_project_to_todo_xml(self, created_project):
+        """Link to todo via XML payload."""
+        pid = created_project["id"]
+        xml_body = "<todo><title>XML Linked Todo</title></todo>"
+        r = requests.post(f"{BASE_URL}/projects/{pid}/tasks", data=xml_body, headers=XML_HEADERS)
+        assert r.status_code == 201
+        parsed = xmltodict.parse(r.text)
+        tid = parsed["todo"]["id"]
+        # Verify link exists
+        r2 = requests.get(f"{BASE_URL}/projects/{pid}/tasks", headers=JSON_HEADERS)
+        todos = r2.json().get("todos", [])
+        assert any(t["id"] == tid for t in todos)
 
 
 # ====================================================================
@@ -406,6 +471,63 @@ class TestProjectCategories:
             headers=JSON_HEADERS,
         )
         assert r.status_code == 400
+
+    def test_get_categories_json(self, created_project):
+        """GET categories should support JSON response format."""
+        pid = created_project["id"]
+        r = requests.get(
+            f"{BASE_URL}/projects/{pid}/categories", headers=JSON_HEADERS
+        )
+        assert r.status_code == 200
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "categories" in data
+
+    def test_get_categories_xml(self, created_project):
+        """GET categories should support XML response format."""
+        pid = created_project["id"]
+        r = requests.get(
+            f"{BASE_URL}/projects/{pid}/categories", headers=XML_HEADERS
+        )
+        assert r.status_code == 200
+        assert "application/xml" in r.headers.get("Content-Type", "")
+        parsed = xmltodict.parse(r.text)
+        assert "categories" in parsed
+
+    def test_link_project_to_category_json(self, created_project):
+        """Link to category via JSON payload returns JSON."""
+        pid = created_project["id"]
+        r = requests.post(
+            f"{BASE_URL}/projects/{pid}/categories",
+            json={"title": "JSON Linked Cat"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "id" in data
+        cid = data["id"]
+        # Verify link exists
+        r2 = requests.get(
+            f"{BASE_URL}/projects/{pid}/categories", headers=JSON_HEADERS
+        )
+        cats = r2.json().get("categories", [])
+        assert any(c["id"] == cid for c in cats)
+
+    def test_link_project_to_category_xml(self, created_project):
+        """Link to category via XML payload."""
+        pid = created_project["id"]
+        xml_body = "<category><title>XML Linked Cat</title></category>"
+        r = requests.post(f"{BASE_URL}/projects/{pid}/categories", data=xml_body, headers=XML_HEADERS)
+        assert r.status_code == 201
+        parsed = xmltodict.parse(r.text)
+        cid = parsed["category"]["id"]
+        # Verify link exists
+        r2 = requests.get(
+            f"{BASE_URL}/projects/{pid}/categories", headers=JSON_HEADERS
+        )
+        cats = r2.json().get("categories", [])
+        assert any(c["id"] == cid for c in cats)
 
 
 # ====================================================================

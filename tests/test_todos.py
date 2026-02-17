@@ -242,6 +242,14 @@ class TestAmendTodo:
         assert data["description"] == created_todo["description"]
         assert data["doneStatus"] == created_todo["doneStatus"]
 
+    def test_amend_todo_xml(self, created_todo):
+        tid = created_todo["id"]
+        xml_body = "<todo><title>XML Amended</title></todo>"
+        r = requests.post(f"{BASE_URL}/todos/{tid}", data=xml_body, headers=XML_HEADERS)
+        assert r.status_code == 200
+        parsed = xmltodict.parse(r.text)
+        assert parsed["todo"]["title"] == "XML Amended"
+
 
 # ====================================================================
 # PUT /todos/:id — Replace / Full Update
@@ -274,9 +282,11 @@ class TestPutTodo:
 
     def test_put_todo_xml(self, created_todo):
         tid = created_todo["id"]
-        xml_body = "<todo><title>XML Put</title></todo>"
+        xml_body = "<todo><title>XML Put</title><doneStatus>true</doneStatus><description>XML Desc</description></todo>"
         r = requests.put(f"{BASE_URL}/todos/{tid}", data=xml_body, headers=XML_HEADERS)
         assert r.status_code == 200
+        parsed = xmltodict.parse(r.text)
+        assert parsed["todo"]["title"] == "XML Put"
 
 
 # ====================================================================
@@ -318,6 +328,12 @@ class TestDeleteTodo:
         after = requests.get(f"{BASE_URL}/todos").json()["todos"]
         assert len(after) == len(before) - 1
         assert any(t["id"] == other["id"] for t in after)
+
+    def test_delete_todo_with_xml_response(self, created_todo):
+        """DELETE should work regardless of Accept header."""
+        tid = created_todo["id"]
+        r = requests.delete(f"{BASE_URL}/todos/{tid}", headers=XML_HEADERS)
+        assert r.status_code == 200
 
 
 # ====================================================================
@@ -381,6 +397,24 @@ class TestTodoTaskOf:
         # The API returns 400 "Not allowed to create with id" instead of linking
         assert r.status_code == 400
 
+    def test_get_task_of_json(self, created_todo):
+        """GET task-of should support JSON response format."""
+        tid = created_todo["id"]
+        r = requests.get(f"{BASE_URL}/todos/{tid}/task-of", headers=JSON_HEADERS)
+        assert r.status_code == 200
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "projects" in data
+
+    def test_get_task_of_xml(self, created_todo):
+        """GET task-of should support XML response format."""
+        tid = created_todo["id"]
+        r = requests.get(f"{BASE_URL}/todos/{tid}/task-of", headers=XML_HEADERS)
+        assert r.status_code == 200
+        assert "application/xml" in r.headers.get("Content-Type", "")
+        parsed = xmltodict.parse(r.text)
+        assert "projects" in parsed
+
 
 # ====================================================================
 # GET /todos/:id/categories — Related Categories
@@ -437,6 +471,55 @@ class TestTodoCategories:
             headers=JSON_HEADERS,
         )
         assert r.status_code == 400
+
+    def test_get_categories_json(self, created_todo):
+        """GET categories should support JSON response format."""
+        tid = created_todo["id"]
+        r = requests.get(f"{BASE_URL}/todos/{tid}/categories", headers=JSON_HEADERS)
+        assert r.status_code == 200
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "categories" in data
+
+    def test_get_categories_xml(self, created_todo):
+        """GET categories should support XML response format."""
+        tid = created_todo["id"]
+        r = requests.get(f"{BASE_URL}/todos/{tid}/categories", headers=XML_HEADERS)
+        assert r.status_code == 200
+        assert "application/xml" in r.headers.get("Content-Type", "")
+        parsed = xmltodict.parse(r.text)
+        assert "categories" in parsed
+
+    def test_link_todo_to_category_json(self, created_todo):
+        """Link to category via JSON payload returns JSON."""
+        tid = created_todo["id"]
+        r = requests.post(
+            f"{BASE_URL}/todos/{tid}/categories",
+            json={"title": "JSON Linked Cat"},
+            headers=JSON_HEADERS,
+        )
+        assert r.status_code == 201
+        assert "application/json" in r.headers.get("Content-Type", "")
+        data = r.json()
+        assert "id" in data
+        cid = data["id"]
+        # Verify link exists
+        r2 = requests.get(f"{BASE_URL}/todos/{tid}/categories", headers=JSON_HEADERS)
+        cats = r2.json().get("categories", [])
+        assert any(c["id"] == cid for c in cats)
+
+    def test_link_todo_to_category_xml(self, created_todo):
+        """Link to category via XML payload."""
+        tid = created_todo["id"]
+        xml_body = "<category><title>XML Linked Cat</title></category>"
+        r = requests.post(f"{BASE_URL}/todos/{tid}/categories", data=xml_body, headers=XML_HEADERS)
+        assert r.status_code == 201
+        parsed = xmltodict.parse(r.text)
+        cid = parsed["category"]["id"]
+        # Verify link exists
+        r2 = requests.get(f"{BASE_URL}/todos/{tid}/categories", headers=JSON_HEADERS)
+        cats = r2.json().get("categories", [])
+        assert any(c["id"] == cid for c in cats)
 
 
 # ====================================================================
