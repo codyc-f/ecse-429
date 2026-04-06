@@ -23,7 +23,8 @@ Outputs
     results/                    directory created automatically
       raw_results.csv           every individual timing measurement
       aggregated_results.csv    mean/median/p95 per (object, operation, size)
-      charts/                   PNG charts (one per object × operation)
+      charts/                   PNG charts (per object × operation, overviews,
+                                  and combined CREATE/UPDATE/DELETE overlays)
 """
 
 import argparse
@@ -183,11 +184,14 @@ class ResourceMonitor:
             return {}
         cpu_vals = [s["cpu_percent"] for s in self.samples]
         mem_vals = [s["mem_available_mb"] for s in self.samples]
+        mem_pct_vals = [s["mem_used_percent"] for s in self.samples]
         return {
             "cpu_mean": sum(cpu_vals) / len(cpu_vals),
             "cpu_max": max(cpu_vals),
             "mem_avail_mean_mb": sum(mem_vals) / len(mem_vals),
             "mem_avail_min_mb": min(mem_vals),
+            "mem_used_mean_pct": sum(mem_pct_vals) / len(mem_pct_vals),
+            "mem_used_max_pct": max(mem_pct_vals),
         }
 
 
@@ -296,6 +300,7 @@ def measure_operation(
 
     print(
         f"mean={mean_ms:.1f}ms  cpu={resource_summary.get('cpu_mean', 0):.1f}%  "
+        f"memUsed={resource_summary.get('mem_used_mean_pct', 0):.1f}%  "
         f"memAvail={resource_summary.get('mem_avail_mean_mb', 0):.0f}MB"
     )
 
@@ -358,6 +363,8 @@ def save_raw_csv(results: list[dict], path: Path) -> None:
                 "cpu_max": r.get("cpu_max", ""),
                 "mem_avail_mean_mb": r.get("mem_avail_mean_mb", ""),
                 "mem_avail_min_mb": r.get("mem_avail_min_mb", ""),
+                "mem_used_mean_pct": r.get("mem_used_mean_pct", ""),
+                "mem_used_max_pct": r.get("mem_used_max_pct", ""),
             })
     if not rows:
         return
@@ -376,6 +383,7 @@ def save_aggregated_csv(results: list[dict], path: Path) -> None:
         "obj_type", "operation", "population_size", "repeat",
         "mean_ms", "median_ms", "p95_ms", "min_ms", "max_ms",
         "cpu_mean", "cpu_max", "mem_avail_mean_mb", "mem_avail_min_mb",
+        "mem_used_mean_pct", "mem_used_max_pct",
     ]
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
@@ -517,6 +525,127 @@ def generate_charts(results: list[dict], charts_dir: Path) -> None:
         fig.savefig(fname, dpi=150)
         plt.close(fig)
         print(f"[chart] {fname}")
+
+    # ---- Per object type: CREATE / UPDATE / DELETE on one chart (Figures 1–3 style) ----
+    _generate_operations_overlay_charts(results, charts_dir, plt, ticker)
+
+
+def _generate_operations_overlay_charts(results, charts_dir, plt, ticker) -> None:
+    """One figure per metric per object type: three lines (create, update, delete)."""
+    obj_types_all = sorted({r["obj_type"] for r in results})
+    operations_order = ["create", "update", "delete"]
+    colors = {"create": "#1f77b4", "update": "#2ca02c", "delete": "#d62728"}
+    legend_labels = {"create": "CREATE", "update": "UPDATE", "delete": "DELETE"}
+    count_axis = {
+        "todo": "Todos Count",
+        "project": "Projects Count",
+        "category": "Categories Count",
+    }
+    title_prefix = {
+        "todo": "Todos",
+        "project": "Projects",
+        "category": "Categories",
+    }
+
+    for obj_type in obj_types_all:
+        by_op: dict[str, list] = {op: [] for op in operations_order}
+        for r in results:
+            if r["obj_type"] != obj_type:
+                continue
+            by_op[r["operation"]].append(r)
+        for op in operations_order:
+            by_op[op].sort(key=lambda x: x["population_size"])
+        if not any(by_op[op] for op in operations_order):
+            continue
+
+        prefix = title_prefix[obj_type]
+        xlabel = count_axis[obj_type]
+
+        # Time vs count
+        fig, ax = plt.subplots(figsize=(10, 5))
+        for op in operations_order:
+            data = by_op[op]
+            if not data:
+                continue
+            sizes = [d["population_size"] for d in data]
+            means = [d["mean_ms"] for d in data]
+            ax.plot(
+                sizes, means, marker="o", markersize=4,
+                label=legend_labels[op], color=colors[op],
+            )
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel("Duration (ms)", fontsize=11)
+        ax.set_title(f"{prefix}: Time vs Object Count", fontsize=12)
+        ax.legend(loc="upper left")
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        fig.tight_layout()
+        p = charts_dir / f"{obj_type}_operations_timing.png"
+        fig.savefig(p, dpi=150)
+        plt.close(fig)
+        print(f"[chart] {p}")
+
+        # CPU vs count
+        fig, ax = plt.subplots(figsize=(10, 5))
+        for op in operations_order:
+            data = by_op[op]
+            if not data:
+                continue
+            sizes = [d["population_size"] for d in data]
+            cpu = [d.get("cpu_mean", 0) or 0 for d in data]
+            ax.plot(
+                sizes, cpu, marker="o", markersize=4,
+                label=legend_labels[op], color=colors[op],
+            )
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel("CPU (%)", fontsize=11)
+        ax.set_title(f"{prefix}: CPU vs Object Count", fontsize=12)
+        ax.legend(loc="upper right")
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.set_ylim(bottom=0)
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        fig.tight_layout()
+        p = charts_dir / f"{obj_type}_operations_cpu.png"
+        fig.savefig(p, dpi=150)
+        plt.close(fig)
+        print(f"[chart] {p}")
+
+        # System memory used (%) vs count — matches "Memory (%)" style figures
+        fig, ax = plt.subplots(figsize=(10, 5))
+        has_mem_pct = any(
+            r.get("mem_used_mean_pct") is not None
+            for r in results
+            if r["obj_type"] == obj_type
+        )
+        if has_mem_pct:
+            for op in operations_order:
+                data = by_op[op]
+                if not data:
+                    continue
+                sizes = [d["population_size"] for d in data]
+                y = [float(d.get("mem_used_mean_pct") or 0) for d in data]
+                ax.plot(
+                    sizes, y, marker="o", markersize=4,
+                    label=legend_labels[op], color=colors[op],
+                )
+            ax.legend(loc="upper left")
+        else:
+            ax.text(
+                0.5, 0.5,
+                "Re-run the suite to populate mem_used_mean_pct\n"
+                "(older CSV runs did not record this field).",
+                transform=ax.transAxes, ha="center", va="center", fontsize=10,
+            )
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel("Memory (%)", fontsize=11)
+        ax.set_title(f"{prefix}: Memory vs Object Count", fontsize=12)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        fig.tight_layout()
+        p = charts_dir / f"{obj_type}_operations_memory_pct.png"
+        fig.savefig(p, dpi=150)
+        plt.close(fig)
+        print(f"[chart] {p}")
 
 
 # ---------------------------------------------------------------------------
