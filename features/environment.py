@@ -6,12 +6,37 @@ import time
 
 BASE_URL = "http://localhost:4567"
 
+
+def _is_server_running(url, timeout=5):
+    """Return True if the server responds within timeout seconds."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            response = requests.get(url, timeout=2)
+            if response.status_code == 200:
+                return True
+        except requests.ConnectionError:
+            time.sleep(0.5)
+        except requests.Timeout:
+            pass
+    return False
+
+
 def before_all(context):
-    """Setup before all tests."""
+    """Setup before all tests. Abort the suite if the server is not reachable."""
     context.base_url = BASE_URL
     context.created_todos = []
     context.created_categories = []
     context.created_projects = []
+
+    if not _is_server_running(f"{BASE_URL}/todos"):
+        context._server_unavailable = True
+        print(
+            f"\n[environment] ERROR: Server is not running at {BASE_URL}. "
+            "All scenarios will be skipped. Please start the server and try again.\n"
+        )
+    else:
+        context._server_unavailable = False
 
 def before_scenario(context, scenario):
     """Reset context before each scenario."""
